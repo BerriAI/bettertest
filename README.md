@@ -98,11 +98,11 @@ Each question is run in parallel and results are added to your dashboard in real
 
 ## Contributing
 
-We welcome contributions to InstructPrompt! Feel free to create issues/PR's/or DM us (👋 Hi I'm Krrish - +17708783106)
+We welcome contributions to BetterTest! Feel free to create issues/PR's/or DM us (👋 Hi I'm Krrish - +17708783106)
 
 ## Changelog
 
-The current version of BetterTest is `0.1.9`.
+The current version of BetterTest is `0.1.98`.
 
 ## License
 
