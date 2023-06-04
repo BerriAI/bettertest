@@ -6,7 +6,7 @@ Our goal with bettertest is to simplify the process of testing and debugging LLM
 
 With bettertest, you can automatically test your LLM applications and view print statements for each run just by adding ‘bettertest’ to any print statement in your code.
 
-**Example run dashboard: ** [Run Dashboard](https://better-test.vercel.app/9913e9f5-1a0b-4b72-843d-6cc140b70c02)
+**Example run dashboard:** [Run Dashboard](https://better-test.vercel.app/9913e9f5-1a0b-4b72-843d-6cc140b70c02)
 
 ## Getting Started
 
