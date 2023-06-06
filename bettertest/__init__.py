@@ -8,8 +8,10 @@ import time
 import openai 
 import os 
 from collections import Counter
-from bettertest.promptTemplate import promptTemplate
-# from promptTemplate import promptTemplate
+# from bettertest.promptTemplate import promptTemplate
+from promptTemplate import promptTemplate
+from customPromptTemplate import customPromptTemplate
+from basePromptTemplate import basePromptTemplate
 import concurrent.futures
 import threading
 import uuid
@@ -62,7 +64,33 @@ class BetterTest:
             self.original_print(*args, **kwargs)
 
         builtins.print = new_print
-
+    
+    def custom_eval(self, recommendations, personal_contexts, llm_function, num_runs=1): 
+        try:
+            start_time = time.time()
+            try:
+                print("🧪 Generating your answers")
+                print("🚀 Go to see your logs: https://better-test.vercel.app/"+str(self.run_id))
+                print("⌛️ It might take 4-5s for your results to start loading...")
+                link = "https://better-test.vercel.app/" + str(self.run_id)
+                print("🚀 Go to see your logs:", link)
+                # Open the link in the browser
+                webbrowser.open(link)
+                model_answer_start_time = time.time()
+                model_answers = self.custom_llm_query_async(recommendations, personal_contexts, llm_function)
+                model_answer_end_time = time.time()
+                print("model answer time: ", model_answer_end_time - model_answer_start_time)
+            except:
+                traceback.print_exc()
+            # accuracy_scores = []
+            # for i in range(num_runs):
+            #   response = internal_eval(questions, model_answers, answers, start_time)
+            #   print("🎉 Accuracy score in run " + str(i + 1) + ": ", response["accuracy_score"])
+            #   accuracy_scores.append(response["accuracy_score"])
+            # return "🚀 You're average accuracy score is: " + str(int(sum(accuracy_scores)/len(accuracy_scores))) + "%."
+            return model_answers
+        except Exception as e:
+            traceback.print_exc()
     def eval(self, questions, answers, llm_function, num_runs=1):
         try:
             start_time = time.time()
@@ -103,6 +131,24 @@ class BetterTest:
         data = await asyncio.to_thread(llm_function, question)
         return data
     
+    def run_custom_func(self, llm_function, recommendation, personal_contexts): 
+        # Run the test function against each question
+        interventions = []
+        log_print_calls = LogPrintCalls()
+        with log_print_calls:
+            for item in personal_contexts:
+                result = llm_function(recommendation, item)
+                interventions.append(result)
+        # log the results here
+        log_output = log_print_calls.return_response_obj()
+        tmp_obj = self.custom_inner_func_internal_eval(recommendation, personal_contexts, interventions)
+        for key in log_output.keys(): 
+            if "bettertest" in log_output[key][0][0]:
+                tmp_obj["function_"+key] = log_output[key]
+        self.write_to_supabase(tmp_obj)
+        return "Done!"
+
+
     def run_test_func(self, llm_function, question, solution_answer): 
         # Run the test function against each question
         log_print_calls = LogPrintCalls()
@@ -116,6 +162,22 @@ class BetterTest:
                 tmp_obj["function_"+key] = log_output[key]
         self.write_to_supabase(tmp_obj)
         return "Done!"
+
+    @retry(wait=wait_random_exponential(min=1, max=20), stop=stop_after_attempt(6))
+    def custom_llm_query_async(self, recommendation_list, personal_context_list, llm_function):
+        try:
+            answers = []
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                for batch in range(0, len(recommendation_list), 250):  # batch process 250 at a time
+                    tasks = [
+                        executor.submit(self.run_custom_func, llm_function, recommendation, personal_context_list[batch+i])
+                        for i, recommendation in enumerate(recommendation_list[batch:batch + 250])
+                    ]
+                    answer = [task.result() for task in tasks]
+                    answers.extend(answer)
+            return answers
+        except:
+            traceback.print_exc()
 
 
     @retry(wait=wait_random_exponential(min=1, max=20), stop=stop_after_attempt(6))
@@ -134,6 +196,51 @@ class BetterTest:
         except:
             traceback.print_exc()
 
+    def custom_inner_func_internal_eval(self, recommendation, personal_contexts, interventions):
+        rationale = []
+        decisions = []
+        model_run_time = []
+        for i in range(3):
+            output = self.custom_temp_eval_model(recommendation, personal_contexts, interventions)
+            rationale.append(output["model_rationale"])
+            decisions.append(output["model_decision"])
+            model_run_time.append(output["model_run_time"])
+        value, idx = self.most_frequent_value(decisions)
+        response_object = {
+            "recommendation": recommendation,
+            "personal_contexts": personal_contexts, 
+            "interventions": interventions, 
+            "model_decision": value, 
+            "model_rationale": rationale[idx]
+        }
+        return response_object
+    
+    def custom_temp_eval_model(self, recommendation, personal_contexts, interventions): 
+        model_run_start_time = time.time()
+        pt = customPromptTemplate.replace("{recommendation}", recommendation)
+        pt = pt.replace("{personal_context_1}", personal_contexts[0])
+        pt = pt.replace("{intervention_1}", interventions[0])
+        pt = pt.replace("{personal_context_2}", personal_contexts[1])
+        pt = pt.replace("{intervention_2}", interventions[1])
+        rationale = self.simple_openai_api_call(pt)
+        if "decision" in rationale.lower(): 
+            decision_part = rationale.lower().split("decision")[1]
+            if "true" in decision_part.lower() or "false" in decision_part.lower(): 
+                decision = decision_part
+            else: 
+                pt_with_rationale = pt + "\n\n" + rationale + "\n\n" + "what was the last decision? answer either 'True' or 'False'"
+                decision = self.simple_openai_api_call(pt_with_rationale)
+        else: 
+            pt_with_rationale = pt + "\n\n" + rationale + "\n\n" + "what was the last decision? answer either 'True' or 'False'"
+            decision = self.simple_openai_api_call(pt_with_rationale)
+        model_run_end_time = time.time()
+        output = {
+            "model_decision": decision,
+            "model_rationale": rationale,
+            "model_run_time": model_run_end_time - model_run_start_time
+        }
+        return output
+    
     def async_inner_func_internal_eval(self, question, model_answer, solution_answer):
         rationale = []
         decisions = []
@@ -155,6 +262,7 @@ class BetterTest:
 
     @retry(wait=wait_random_exponential(min=1, max=20), stop=stop_after_attempt(6))
     def simple_openai_api_call(self, prompt):
+        print("prompt: ", prompt)
         completion = openai.ChatCompletion.create(
             model="gpt-3.5-turbo",
             messages=[{
