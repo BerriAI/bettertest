@@ -1,3 +1,5 @@
+⚠️ This is no longer supported 
+
 # bettertest 📝🔍
 
 ⚡ A Python testing library for automatically evaluating and tracing LLM applications ⚡
